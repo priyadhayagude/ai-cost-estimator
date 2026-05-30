@@ -1,0 +1,6 @@
+{
+  "name": "AI Construction Cost Estimator - Login",
+  "description": "Interactive and secure prototype for the AI Construction Cost Estimator Login with live password requirement validation and Supabase credentials verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

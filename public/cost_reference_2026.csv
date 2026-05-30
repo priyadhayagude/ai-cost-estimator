@@ -1,0 +1,22 @@
+Asset Type,Unit,Unit Cost,Category,Material Unit Cost,Labor Unit Cost,Description
+Concrete Foundation Wall,cu yd,240.00,Structural,140.00,100.00,Reinforced concrete foundation wall 8-inch thick
+Drywall Partition Wall,sq ft,6.50,Finishes,2.50,4.00,5/8-inch Type X drywall on metal studs both sides
+Brick Masonry Wall,sq ft,18.50,Structural,10.00,8.50,Double-wythe structural facing brick wall
+Solid Core Wood Door,ea,450.00,Finishes,280.00,170.00,3-ft x 7-ft solid core birch door with heavy-duty commercial hardware
+Hollow Steel Security Door,ea,620.00,Structural,420.00,200.00,16-gauge insulated steel door with panic push bar
+Double-Paned Vinyl Window,ea,380.00,Finishes,250.00,130.00,Low-E insulating double-hung window
+Aluminum Storefront Glazing,sq ft,45.00,Finishes,30.00,15.00,Anodized aluminum storefront frame with 1/4-inch tempered glass
+Structural Steel Column,ton,3200.00,Structural,2200.00,1000.00,Wide flange H-beam columns (W10x49 series)
+Reinforced Concrete Column,ea,1200.00,Structural,750.00,450.00,24-inch diameter circular concrete column with rebar cage
+Copper Water Piping (1/2 in),linear ft,12.00,Mechanical,5.50,6.50,Type L copper pressurized supply pipe with fittings and soldering
+PVC Sanitary Drain Pipe (3 in),linear ft,9.50,Mechanical,3.00,6.50,Schedule 40 PVC sewer and drain piping with solvent weld joints
+PEX Water Distribution Line,linear ft,6.00,Mechanical,2.00,4.00,Cross-linked polyethylene water line with crimp connections
+Commercial Carpet Tile,sq ft,5.50,Finishes,3.00,2.50,Heavy-traffic level loop nylon carpet tiles
+Porcelain Floor Tile,sq ft,12.00,Finishes,5.50,6.50,12-inch x 12-inch porcelain floor tiles on thinset mortar bed
+Polished Concrete floor,sq ft,4.00,Finishes,1.00,3.00,Multi-stage mechanical grind and liquid densifier floor seal
+Asphalt Architectural Shingles,sq ft,5.20,Roofing,2.20,3.00,Fiberglass architectural asphalt shingles over underlayment
+Standing Seam Metal Roof,sq ft,14.50,Roofing,8.50,6.00,24-gauge pre-finished steel panels with concealed fasteners
+Single-Ply TPO Roof Membrane,sq ft,8.00,Roofing,4.50,3.50,60-mil reinforced thermoplastic polyolefin membrane fully adhered
+LED Recessed Troffer,ea,180.00,Electrical,110.00,70.00,2x4 architectural high-efficiency LED ceiling luminaire
+Heavy Duty Duplex Outlet,ea,24.00,Electrical,6.00,18.00,20A commercial grade duplex receptacle with cover plate
+200A Electrical Panel,ea,1500.00,Electrical,950.00,550.00,3-phase 120/248V main circuit breaker panelboard with breakers
