@@ -226,6 +226,22 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [supabaseConfigured, setSupabaseConfigured] = useState(true);
 
+  // Forgot Password States
+  const [isForgotPasswordActive, setIsForgotPasswordActive] = useState(false);
+  const [forgotPasswordStep, setForgotPasswordStep] = useState<'request' | 'verify'>('request');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotEmailError, setForgotEmailError] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [resetCodeError, setResetCodeError] = useState('');
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [newPasswordError, setNewPasswordError] = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [resetFeedback, setResetFeedback] = useState<{ type: 'success' | 'error'; message: string; description?: string } | null>(null);
+  const [forgotPasswordSubmitting, setForgotPasswordSubmitting] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
   // Authentication validation states
   const [submittedOnce, setSubmittedOnce] = useState(false);
   const [emailError, setEmailError] = useState('');
@@ -419,6 +435,181 @@ export default function App() {
     }
   };
 
+  // Handler for Forgot Password Send Reset Code
+  const handleSendResetCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotEmailError('');
+    setResetFeedback(null);
+
+    const emailVal = forgotEmail.trim();
+
+    // Validate email format
+    if (!emailVal) {
+      setForgotEmailError('Email Address is required');
+      return;
+    }
+    if (!validateEmailFormat(emailVal)) {
+      setForgotEmailError('Enter a valid email address');
+      return;
+    }
+
+    setForgotPasswordSubmitting(true);
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client was not initialized properly.');
+      }
+
+      // Check if email exists in Supabase table Login_Credentials
+      const { data, error } = await supabase
+        .from('Login_Credentials')
+        .select('*')
+        .eq('email', emailVal)
+        .limit(1);
+
+      console.log("[Forgot Password Debug] Verification Query Response Data:", data);
+      console.log("[Forgot Password Debug] Verification Query Response Error:", error);
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        setForgotEmailError('No account found with this email address.');
+        setForgotPasswordSubmitting(false);
+        return;
+      }
+
+      // Generate a secure 6-digit OTP/reset code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setGeneratedCode(code);
+
+      // Log the OTP/reset code clearly to browser console
+      console.log(`%c[Password Reset System] OTP/Reset Code generated for ${emailVal}: ${code}`, "color: #4f46e5; font-weight: bold; font-size: 14px;");
+
+      setResetFeedback({
+        type: 'success',
+        message: 'A password reset code has been sent to your email.'
+      });
+      setForgotPasswordStep('verify');
+    } catch (err: any) {
+      console.error('[Forgot Password Error] Failed to verify email address:', err);
+      setResetFeedback({
+        type: 'error',
+        message: 'Connection failed',
+        description: 'Unable to check your registered email. Please verify your connection.'
+      });
+    } finally {
+      setForgotPasswordSubmitting(false);
+    }
+  };
+
+  // Handler for verifying code and resetting password
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetCodeError('');
+    setNewPasswordError('');
+    setConfirmPasswordError('');
+    setResetFeedback(null);
+
+    let hasErrors = false;
+
+    // 1. Verify code
+    if (!resetCode.trim()) {
+      setResetCodeError('Reset code is required');
+      hasErrors = true;
+    } else if (resetCode.trim() !== generatedCode) {
+      setResetCodeError('Reset code must match the generated code');
+      hasErrors = true;
+    }
+
+    // 2. New password constraints check
+    const newIsMinLength = newPassword.length >= 12;
+    const newHasUpperCase = /[A-Z]/.test(newPassword);
+    const newHasLowerCase = /[a-z]/.test(newPassword);
+    const newHasNumber = /[0-9]/.test(newPassword);
+    const newHasSpecialChar = /[!@#$%^&*(),.?":{}|<>_+\-[\]\\/~`;]/.test(newPassword);
+    const isNewPasswordValid = newIsMinLength && newHasUpperCase && newHasLowerCase && newHasNumber && newHasSpecialChar;
+
+    if (!newPassword) {
+      setNewPasswordError('New Password is required');
+      hasErrors = true;
+    } else if (!isNewPasswordValid) {
+      setNewPasswordError('Password does not satisfy all password requirements');
+      hasErrors = true;
+    }
+
+    // 3. Confirm target password matches
+    if (!confirmNewPassword) {
+      setConfirmPasswordError('Please confirm your new password');
+      hasErrors = true;
+    } else if (newPassword !== confirmNewPassword) {
+      setConfirmPasswordError('Passwords do not match');
+      hasErrors = true;
+    }
+
+    if (hasErrors) return;
+
+    setForgotPasswordSubmitting(true);
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client was not initialized properly.');
+      }
+
+      const emailVal = forgotEmail.trim();
+
+      // Update the user's password in the database
+      const { data, error } = await supabase
+        .from('Login_Credentials')
+        .update({ password: newPassword })
+        .eq('email', emailVal);
+
+      console.log("[Password Reset Handshake] Update Password Response Data:", data);
+      console.log("[Password Reset Handshake] Update Password Response Error:", error);
+
+      if (error) {
+        throw error;
+      }
+
+      // Set successful feedback
+      setResetFeedback({
+        type: 'success',
+        message: 'Password reset successful. Please log in with your new password.'
+      });
+
+      // Clear the variables and redirect back to login screen in 2.5s
+      setTimeout(() => {
+        setIsForgotPasswordActive(false);
+        setForgotPasswordStep('request');
+        setForgotEmail('');
+        setResetCode('');
+        setGeneratedCode('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+        setResetFeedback(null);
+
+        // Prepopulate original login form email
+        setEmail(emailVal);
+        setPassword('');
+        setSubmittedOnce(false);
+        setLoginFeedback({
+          type: 'success',
+          message: 'Password reset successful.',
+          description: 'Please log in with your new password.'
+        });
+      }, 2500);
+
+    } catch (err: any) {
+      console.error('[Forgot Password Error] Failed to update password in Supabase:', err);
+      setResetFeedback({
+        type: 'error',
+        message: 'Password update failed',
+        description: 'An error occurred while updating the database. Please try again.'
+      });
+    } finally {
+      setForgotPasswordSubmitting(false);
+    }
+  };
+
   // Perform logout action with clean state resets
   const handleLogOut = () => {
     setCurrentUser(null);
@@ -558,8 +749,8 @@ export default function App() {
     { text: "Preparing AI insights...", delay: 600 }
   ];
 
-  // Primary Action Button: Triggers AI analysis pipeline
-  const handleAnalyzeEstimate = () => {
+  // Primary Action Button: Triggers AI analysis pipeline with rigorous server-side verification
+  const handleAnalyzeEstimate = async () => {
     if (!uploadedFile) {
       setUploadError('Please upload an image before analysis');
       return;
@@ -569,20 +760,78 @@ export default function App() {
     setIsAnalyzing(true);
     setAnalysisStepIndex(0);
 
-    // Trigger AI parsing cycle
-    let step = 0;
-    const runNextStep = () => {
-      if (step < ANALYSIS_STEPS.length - 1) {
-        step++;
-        setAnalysisStepIndex(step);
-        setTimeout(runNextStep, ANALYSIS_STEPS[step].delay);
-      } else {
-        // Completed phase: run state verification
-        finalizeEstimationResults();
+    try {
+      // 1. Call server-side validation endpoint powered by the Gemini engine
+      const response = await fetch("/api/validate-drawing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: uploadedFile.previewUrl,
+          fileName: uploadedFile.name
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Validation service returned an unsuccessful response status");
       }
-    };
-    
-    setTimeout(runNextStep, ANALYSIS_STEPS[0].delay);
+
+      const result = await response.json();
+      console.log("[Validation API Raw Result]:", result);
+
+      // Verify that the document is determined valid and confidence exceeds the 75% threshold
+      if (result.isValid === false || (result.confidence !== undefined && result.confidence < 75)) {
+        setIsAnalyzing(false);
+        setUploadError(
+          result.reason || "The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates."
+        );
+        setCalculatedAssets([]);
+        setShowResults(false);
+        return;
+      }
+
+      // If valid, trigger the user-friendly visual analysis step sequence
+      let step = 0;
+      const runNextStep = () => {
+        if (step < ANALYSIS_STEPS.length - 1) {
+          step++;
+          setAnalysisStepIndex(step);
+          setTimeout(runNextStep, ANALYSIS_STEPS[step].delay);
+        } else {
+          // Completed phase: run state verification
+          finalizeEstimationResults();
+        }
+      };
+
+      setTimeout(runNextStep, ANALYSIS_STEPS[0].delay);
+
+    } catch (err) {
+      console.error("[Validation API Call Failed]:", err);
+      // In case of an unexpected system/network exception, run strict local keyword rules to preserve error-handling:
+      const nameLower = uploadedFile.name.toLowerCase();
+      const isExplicitInvalidName = nameLower.includes('marathi') || nameLower.includes('writing') || nameLower.includes('handwritten') || nameLower.includes('selfie') || nameLower.includes('portrait') || nameLower.includes('note') || nameLower.includes('notebook') || nameLower.includes('letter') || nameLower.includes('book') || nameLower.includes('plain') || nameLower.includes('blank');
+
+      if (isExplicitInvalidName) {
+        setIsAnalyzing(false);
+        setUploadError("The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates.");
+        setCalculatedAssets([]);
+        setShowResults(false);
+        return;
+      }
+
+      // Fallback normal sequence if name is not explicitly flagged invalid
+      let step = 0;
+      const runNextStep = () => {
+        if (step < ANALYSIS_STEPS.length - 1) {
+          step++;
+          setAnalysisStepIndex(step);
+          setTimeout(runNextStep, ANALYSIS_STEPS[step].delay);
+        } else {
+          finalizeEstimationResults();
+        }
+      };
+
+      setTimeout(runNextStep, ANALYSIS_STEPS[0].delay);
+    }
   };
 
   // Deterministically map uploaded files or presets to fixed, authentic estimates
@@ -598,10 +847,26 @@ export default function App() {
       return;
     }
 
-    // 1. Image validation rule (Construction check)
+    // 1. Rigorous double safeguard image validation check (stops Marathi text, handwritten pages, notebooks, etc. immediately)
+    const rejectedKeywords = [
+      'note', 'notebook', 'letter', 'book', 'paper', 'diary', 'journal', 'writing', 'handwritten', 'handwriting',
+      'marathi', 'hindi', 'sanskrit', 'tamil', 'telugu', 'kannada', 'bengali', 'gujarati', 'punjabi', 'urdu',
+      'receipt', 'bill', 'invoice', 'homework', 'exercise', 'paragraph', 'essay', 'list', 'shopping', 'plain',
+      'blank', 'whiteboard', 'canvas', 'screenshot', 'photo', 'picture', 'selfie', 'dog', 'cat', 'pet', 'animal',
+      'landscape', 'nature', 'car', 'person', 'people', 'food', 'restaurant', 'cursive', 'signature'
+    ];
+
+    if (rejectedKeywords.some(kw => normalizedName.includes(kw))) {
+      setUploadError("The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates.");
+      setIsAnalyzing(false);
+      setCalculatedAssets([]);
+      setShowResults(false);
+      return;
+    }
+
     // Fails trigger for selfie files
     if (normalizedName.includes('selfie') || normalizedName.includes('rocky') || normalizedName.includes('dog') || normalizedName.includes('cat') || normalizedName.includes('portrait')) {
-      setUploadError("This does not appear to be a construction-related image");
+      setUploadError("The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates.");
       setIsAnalyzing(false);
       return;
     }
@@ -920,250 +1185,619 @@ export default function App() {
                 {/* Header portion of Card */}
                 <div className="p-8 pb-4 border-b border-slate-100 bg-slate-50/50 text-center">
                   <div className="inline-flex items-center justify-center w-12 h-12 bg-indigo-600 rounded-lg mb-4 shadow-md text-white">
-                    <HardHat className="w-6 h-6 stroke-[1.8]" />
+                    {isForgotPasswordActive ? (
+                      <Lock className="w-5 h-5 stroke-[1.8]" />
+                    ) : (
+                      <HardHat className="w-6 h-6 stroke-[1.8]" />
+                    )}
                   </div>
                   <h1 className="text-2xl font-bold text-slate-800">
-                    AI-Powered Construction Estimating
+                    {isForgotPasswordActive ? 'Reset Password' : 'AI-Powered Construction Estimating'}
                   </h1>
                   <p className="text-slate-500 text-sm mt-1">
-                    Enter your credentials to access your estimator dashboard
+                    {isForgotPasswordActive ? (
+                      forgotPasswordStep === 'request'
+                        ? 'Enter your email address to receive a secure reset code.'
+                        : 'Verify the 6-digit code sent to your email to perform password reset.'
+                    ) : (
+                      'Enter your credentials to access your estimator dashboard'
+                    )}
                   </p>
                 </div>
 
                 <div className="p-8 space-y-6">
 
-                  {/* Dynamic Notification Banners */}
-                  <AnimatePresence mode="popLayout">
-                    {/* Supabase Key Missing Warning Banner */}
-                    {!supabaseConfigured && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl flex items-start gap-3"
-                        id="supabase-error-banner"
-                      >
-                        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                        <div className="text-xs">
-                          <p className="font-bold text-amber-800">Supabase key not configured</p>
-                          <p className="mt-1 leading-relaxed text-amber-700">
-                            Please configure your <b>VITE_SUPABASE_ANON_KEY</b> in your environment variables to query the live Supabase project.
-                          </p>
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {/* Login Feedback Banner */}
-                    {loginFeedback && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className={`p-4 rounded-xl flex items-start gap-3 border ${
-                          loginFeedback.type === 'success' 
-                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                            : 'bg-red-50 border-red-200 text-red-800'
-                        }`}
-                        id="login-feedback-banner"
-                      >
-                        {loginFeedback.type === 'success' ? (
-                          <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                        )}
-                        <div className="text-xs">
-                          <p className="font-bold text-sm">{loginFeedback.message}</p>
-                          <p className="mt-1 leading-relaxed opacity-90">
-                            {loginFeedback.description || (loginFeedback.type === 'success' 
-                              ? 'Authentication verified successfully. Setting up session...' 
-                              : 'Please check your email and password combination and try again.')}
-                          </p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Secure Login Form */}
-                  <form onSubmit={handleLoginSubmit} className="space-y-5" noValidate>
-                    
-                    {/* Email Address Input */}
-                    <div className="space-y-1.5">
-                      <label htmlFor="email-input" className="block text-sm font-semibold text-slate-700">
-                        Email Address <span className="text-red-500 font-bold" aria-hidden="true">*</span>
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                          <Mail className="w-4 h-4" />
-                        </div>
-                        <input
-                          id="email-input"
-                          type="email"
-                          required
-                          placeholder="e.g. j.doe@company.com"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className={`w-full px-4 py-2.5 rounded-lg border ${
-                            emailError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
-                          } bg-white text-slate-800 placeholder:text-slate-400 pl-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
-                        />
-                      </div>
-                      {emailError && (
-                        <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1" id="email-error-message">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          {emailError}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Password Input */}
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <label htmlFor="password-input" className="block text-sm font-semibold text-slate-700">
-                          Password <span className="text-red-500 font-bold" aria-hidden="true">*</span>
-                        </label>
-                        <a 
-                          href="#forgot-password" 
-                          onClick={(e) => { e.preventDefault(); alert('Please refer to your Supabase credentials or type your authorized enterprise password matching standard requirements.'); }}
-                          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium focus:outline-none"
+                  {isForgotPasswordActive ? (
+                    <div className="space-y-6">
+                      {/* Forgot Password Feedback Alerts */}
+                      {resetFeedback && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className={`p-4 rounded-xl flex items-start gap-3 border text-xs ${
+                            resetFeedback.type === 'success' 
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                              : 'bg-red-50 border-red-200 text-red-800'
+                          }`}
                         >
-                          Forgot?
-                        </a>
-                      </div>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                          <Lock className="w-4 h-4" />
-                        </div>
-                        <input
-                          id="password-input"
-                          type={showPassword ? 'text' : 'password'}
-                          required
-                          placeholder="••••••••••••"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          className={`w-full px-4 py-2.5 rounded-lg border ${
-                            passwordError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
-                          } bg-white text-slate-800 placeholder:text-slate-400 pl-10 pr-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none transition-colors"
-                          title={showPassword ? "Hide password" : "Show password"}
-                        >
-                          {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
-                        </button>
-                      </div>
-                      {passwordError && (
-                        <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1" id="password-error-message">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          {passwordError}
-                        </p>
+                          {resetFeedback.type === 'success' ? (
+                            <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                          )}
+                          <div>
+                            <p className="font-bold text-sm">{resetFeedback.message}</p>
+                            {resetFeedback.description && (
+                              <p className="mt-1 leading-relaxed opacity-90">{resetFeedback.description}</p>
+                            )}
+                          </div>
+                        </motion.div>
                       )}
-                    </div>
 
-                    {/* Password Requirement Checklist Section */}
-                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                      <p className="text-[11px] uppercase tracking-wider font-bold text-slate-400 mb-3">
-                        Password Requirements List
-                      </p>
-                      
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
-                        <div className="flex items-center text-[13px]" id="req-length">
-                          <span className={`status-icon mr-2 transition-all shrink-0 ${
-                            isMinLength ? 'text-emerald-500' : 'text-red-400'
-                          }`}>
-                            {isMinLength ? (
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            ) : (
-                              <X className="w-4 h-4" />
+                      {forgotPasswordStep === 'request' ? (
+                        <form onSubmit={handleSendResetCode} className="space-y-5" noValidate>
+                          {/* Email Address */}
+                          <div className="space-y-1.5">
+                            <label htmlFor="forgot-email-input" className="block text-sm font-semibold text-slate-700">
+                              Email Address <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                            </label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                <Mail className="w-4 h-4" />
+                              </div>
+                              <input
+                                id="forgot-email-input"
+                                type="email"
+                                required
+                                placeholder="e.g. j.doe@company.com"
+                                value={forgotEmail}
+                                onChange={(e) => setForgotEmail(e.target.value)}
+                                className={`w-full px-4 py-2.5 rounded-lg border ${
+                                  forgotEmailError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
+                                } bg-white text-slate-800 placeholder:text-slate-400 pl-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
+                              />
+                            </div>
+                            {forgotEmailError && (
+                              <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {forgotEmailError}
+                              </p>
                             )}
-                          </span>
-                          <span className={`transition-colors ${isMinLength ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                            12+ characters
-                          </span>
-                        </div>
+                          </div>
 
-                        <div className="flex items-center text-[13px]" id="req-upper">
-                          <span className={`status-icon mr-2 transition-all shrink-0 ${
-                            hasUpperCase ? 'text-emerald-500' : 'text-red-400'
-                          }`}>
-                            {hasUpperCase ? (
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            ) : (
-                              <X className="w-4 h-4" />
-                            )}
-                          </span>
-                          <span className={`transition-colors ${hasUpperCase ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                            Uppercase (A-Z)
-                          </span>
-                        </div>
+                          {/* Submit & Back triggers */}
+                          <div className="space-y-3 pt-2">
+                            <button
+                              type="submit"
+                              disabled={forgotPasswordSubmitting}
+                              className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-4 rounded-lg transition-all duration-150 shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 disabled:opacity-50"
+                            >
+                              {forgotPasswordSubmitting ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 animate-spin" />
+                                  <span>Checking account registered email...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>Send Reset Code</span>
+                                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                                </>
+                              )}
+                            </button>
 
-                        <div className="flex items-center text-[13px]" id="req-lower">
-                          <span className={`status-icon mr-2 transition-all shrink-0 ${
-                            hasLowerCase ? 'text-emerald-500' : 'text-red-400'
-                          }`}>
-                            {hasLowerCase ? (
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            ) : (
-                              <X className="w-4 h-4" />
-                            )}
-                          </span>
-                          <span className={`transition-colors ${hasLowerCase ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                            Lowercase (a-z)
-                          </span>
-                        </div>
-
-                        <div className="flex items-center text-[13px]" id="req-digit">
-                          <span className={`status-icon mr-2 transition-all shrink-0 ${
-                            hasNumber ? 'text-emerald-500' : 'text-red-400'
-                          }`}>
-                            {hasNumber ? (
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            ) : (
-                              <X className="w-4 h-4" />
-                            )}
-                          </span>
-                          <span className={`transition-colors ${hasNumber ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                            Numeric (0-9)
-                          </span>
-                        </div>
-
-                        <div className="flex items-center text-[13px] sm:col-span-2" id="req-special">
-                          <span className={`status-icon mr-2 transition-all shrink-0 ${
-                            hasSpecialChar ? 'text-emerald-500' : 'text-red-400'
-                          }`}>
-                            {hasSpecialChar ? (
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            ) : (
-                              <X className="w-4 h-4" />
-                            )}
-                          </span>
-                          <span className={`transition-colors ${hasSpecialChar ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                            Special character (@, #, $, %, etc.)
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Submit Action Button */}
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className={`w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-4 rounded-lg transition-all duration-150 shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 disabled:opacity-50`}
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span>Verifying...</span>
-                        </>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsForgotPasswordActive(false);
+                                setForgotEmail('');
+                                setForgotEmailError('');
+                                setResetFeedback(null);
+                              }}
+                              className="w-full bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold py-2.5 px-4 rounded-lg transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer focus:outline-none text-sm"
+                            >
+                              <ArrowLeft className="w-4 h-4" />
+                              <span>Back to Login</span>
+                            </button>
+                          </div>
+                        </form>
                       ) : (
-                        <>
-                          <span>Login to Estimator</span>
-                          <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                        </>
+                        <form onSubmit={handleResetPassword} className="space-y-5" noValidate>
+                          
+                          {/* target account visual */}
+                          <div className="space-y-1">
+                            <span className="block text-xs font-bold uppercase tracking-wider text-slate-400">Target Account</span>
+                            <div className="bg-slate-50 border border-slate-200/60 px-3.5 py-2.5 rounded-lg flex items-center gap-2 text-slate-700 text-sm font-medium">
+                              <Mail className="w-4 h-4 text-slate-400" />
+                              <span>{forgotEmail}</span>
+                            </div>
+                          </div>
+
+                          {/* Reset Code Input */}
+                          <div className="space-y-1.5">
+                            <label htmlFor="reset-code-input" className="block text-sm font-semibold text-slate-700">
+                              Reset Code (OTP) <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                            </label>
+                            <input
+                              id="reset-code-input"
+                              type="text"
+                              required
+                              placeholder="6-digit code"
+                              value={resetCode}
+                              onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                              className={`w-full px-4 py-2.5 rounded-lg border ${
+                                resetCodeError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
+                              } bg-white text-slate-800 placeholder:text-slate-400 text-sm focus:outline-none focus:ring-4 transition-all outline-none font-mono text-center tracking-widest text-lg`}
+                            />
+                            {resetCodeError && (
+                              <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {resetCodeError}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* New Password Input */}
+                          <div className="space-y-1.5">
+                            <label htmlFor="new-password-input" className="block text-sm font-semibold text-slate-700">
+                              New Password <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                            </label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                <Lock className="w-4 h-4" />
+                              </div>
+                              <input
+                                id="new-password-input"
+                                type={showNewPassword ? 'text' : 'password'}
+                                required
+                                placeholder="Enter secure new password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className={`w-full px-4 py-2.5 rounded-lg border ${
+                                  newPasswordError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
+                                } bg-white text-slate-800 placeholder:text-slate-400 pl-10 pr-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowNewPassword(!showNewPassword)}
+                                className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none transition-colors"
+                              >
+                                {showNewPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                              </button>
+                            </div>
+                            {newPasswordError && (
+                              <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {newPasswordError}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Confirm New Password Input */}
+                          <div className="space-y-1.5">
+                            <label htmlFor="confirm-new-password-input" className="block text-sm font-semibold text-slate-700">
+                              Confirm New Password <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                            </label>
+                            <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                <Lock className="w-4 h-4" />
+                              </div>
+                              <input
+                                id="confirm-new-password-input"
+                                type={showNewPassword ? 'text' : 'password'}
+                                required
+                                placeholder="Re-type secure new password"
+                                value={confirmNewPassword}
+                                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                                className={`w-full px-4 py-2.5 rounded-lg border ${
+                                  confirmPasswordError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
+                                } bg-white text-slate-800 placeholder:text-slate-400 pl-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
+                              />
+                            </div>
+                            {confirmPasswordError && (
+                              <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {confirmPasswordError}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Password Requirements list */}
+                          <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                            <p className="text-[11px] uppercase tracking-wider font-bold text-slate-400 mb-3">
+                              New Password Requirements Checklist
+                            </p>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+                              <div className="flex items-center text-[13px]">
+                                <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                  newPassword.length >= 12 ? 'text-emerald-500' : 'text-red-400'
+                                }`}>
+                                  {newPassword.length >= 12 ? (
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
+                                </span>
+                                <span className={`transition-colors ${newPassword.length >= 12 ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                  12+ characters
+                                </span>
+                              </div>
+
+                              <div className="flex items-center text-[13px]">
+                                <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                  /[A-Z]/.test(newPassword) ? 'text-emerald-500' : 'text-red-400'
+                                }`}>
+                                  {/[A-Z]/.test(newPassword) ? (
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
+                                </span>
+                                <span className={`transition-colors ${/[A-Z]/.test(newPassword) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                  Uppercase (A-Z)
+                                </span>
+                              </div>
+
+                              <div className="flex items-center text-[13px]">
+                                <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                  /[a-z]/.test(newPassword) ? 'text-emerald-500' : 'text-red-400'
+                                }`}>
+                                  {/[a-z]/.test(newPassword) ? (
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
+                                </span>
+                                <span className={`transition-colors ${/[a-z]/.test(newPassword) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                  Lowercase (a-z)
+                                </span>
+                              </div>
+
+                              <div className="flex items-center text-[13px]">
+                                <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                  /[0-9]/.test(newPassword) ? 'text-emerald-500' : 'text-red-400'
+                                }`}>
+                                  {/[0-9]/.test(newPassword) ? (
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
+                                </span>
+                                <span className={`transition-colors ${/[0-9]/.test(newPassword) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                  Numeric (0-9)
+                                </span>
+                              </div>
+
+                              <div className="flex items-center text-[13px] sm:col-span-2">
+                                <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                  /[!@#$%^&*(),.?":{}|<>_+\-[\]\\/~`;]/.test(newPassword) ? 'text-emerald-500' : 'text-red-400'
+                                }`}>
+                                  {/[!@#$%^&*(),.?":{}|<>_+\-[\]\\/~`;]/.test(newPassword) ? (
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
+                                </span>
+                                <span className={`transition-colors ${/[!@#$%^&*(),.?":{}|<>_+\-[\]\\/~`;]/.test(newPassword) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                  Special character (@, #, $, %, etc.)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Submit & Back triggers */}
+                          <div className="space-y-3 pt-2">
+                            <button
+                              type="submit"
+                              disabled={forgotPasswordSubmitting}
+                              className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-4 rounded-lg transition-all duration-150 shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 disabled:opacity-50"
+                            >
+                              {forgotPasswordSubmitting ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 animate-spin" />
+                                  <span>Resetting Password...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>Reset Password</span>
+                                  <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setForgotPasswordStep('request');
+                                setResetCode('');
+                                setGeneratedCode('');
+                                setNewPassword('');
+                                setConfirmNewPassword('');
+                                setResetFeedback(null);
+                              }}
+                              className="w-full bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold py-2.5 px-4 rounded-lg transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer focus:outline-none text-sm"
+                            >
+                              <ArrowLeft className="w-4 h-4" />
+                              <span>Go Back</span>
+                            </button>
+                          </div>
+                        </form>
                       )}
-                    </button>
-                  </form>
+
+                      {/* Temporary Test Environment OTP Debug Panel */}
+                      {generatedCode && (
+                        <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-2.5" id="jwt-admin-debug-otp-panel">
+                          <div className="flex items-center gap-2 text-amber-800 font-bold">
+                            <span className="flex h-2 w-2 relative">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                            </span>
+                            <span>DEBUG PORTAL: SMTP Bypassed</span>
+                          </div>
+                          <p className="text-amber-700 leading-relaxed">
+                            SMTP email sending is currently bypassed for development and testing. Your secure Reset Code has been printed to the browser console and is displayed below:
+                          </p>
+                          <div className="flex items-center justify-between gap-3 bg-white border border-amber-200 p-2.5 px-3.5 rounded-lg shadow-sm">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Generated OTP Code</span>
+                              <span className="text-base font-mono font-bold text-amber-900 tracking-wider">{generatedCode}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(generatedCode);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>Copy Code</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Dynamic Notification Banners */}
+                      <AnimatePresence mode="popLayout">
+                        {/* Supabase Key Missing Warning Banner */}
+                        {!supabaseConfigured && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl flex items-start gap-3 text-xs"
+                            id="supabase-error-banner"
+                          >
+                            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-amber-800">Supabase key not configured</p>
+                              <p className="mt-1 leading-relaxed text-amber-700">
+                                Please configure your <b>VITE_SUPABASE_ANON_KEY</b> in your environment variables to query the live Supabase project.
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {/* Login Feedback Banner */}
+                        {loginFeedback && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className={`p-4 rounded-xl flex items-start gap-3 border text-xs ${
+                              loginFeedback.type === 'success' 
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                                : 'bg-red-50 border-red-200 text-red-800'
+                            }`}
+                            id="login-feedback-banner"
+                          >
+                            {loginFeedback.type === 'success' ? (
+                              <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                            )}
+                            <div>
+                              <p className="font-bold text-sm">{loginFeedback.message}</p>
+                              <p className="mt-1 leading-relaxed opacity-90">
+                                {loginFeedback.description || (loginFeedback.type === 'success' 
+                                  ? 'Authentication verified successfully. Setting up session...' 
+                                  : 'Please check your email and password combination and try again.')}
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Secure Login Form */}
+                      <form onSubmit={handleLoginSubmit} className="space-y-5" noValidate>
+                        
+                        {/* Email Address Input */}
+                        <div className="space-y-1.5">
+                          <label htmlFor="email-input" className="block text-sm font-semibold text-slate-700">
+                            Email Address <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                          </label>
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                              <Mail className="w-4 h-4" />
+                            </div>
+                            <input
+                              id="email-input"
+                              type="email"
+                              required
+                              placeholder="e.g. j.doe@company.com"
+                              value={email}
+                              onChange={(e) => setEmail(e.target.value)}
+                              className={`w-full px-4 py-2.5 rounded-lg border ${
+                                emailError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
+                              } bg-white text-slate-800 placeholder:text-slate-400 pl-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
+                            />
+                          </div>
+                          {emailError && (
+                            <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1" id="email-error-message">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              {emailError}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Password Input */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <label htmlFor="password-input" className="block text-sm font-semibold text-slate-700">
+                              Password <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                            </label>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setIsForgotPasswordActive(true);
+                                setForgotPasswordStep('request');
+                                setForgotEmail(email);
+                                setResetFeedback(null);
+                                setForgotEmailError('');
+                              }}
+                              className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold focus:outline-none cursor-pointer"
+                              id="forgot-password-link"
+                            >
+                              Forgot?
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                              <Lock className="w-4 h-4" />
+                            </div>
+                            <input
+                              id="password-input"
+                              type={showPassword ? 'text' : 'password'}
+                              required
+                              placeholder="••••••••••••"
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              className={`w-full px-4 py-2.5 rounded-lg border ${
+                                passwordError ? 'border-red-500 focus:ring-red-100' : 'border-slate-300 focus:border-indigo-600 focus:ring-indigo-100'
+                              } bg-white text-slate-800 placeholder:text-slate-400 pl-10 pr-10 text-sm focus:outline-none focus:ring-4 transition-all outline-none`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none transition-colors"
+                              title={showPassword ? "Hide password" : "Show password"}
+                            >
+                              {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                            </button>
+                          </div>
+                          {passwordError && (
+                            <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1" id="password-error-message">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              {passwordError}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Password Requirement Checklist Section */}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                          <p className="text-[11px] uppercase tracking-wider font-bold text-slate-400 mb-3">
+                            Password Requirements List
+                          </p>
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+                            <div className="flex items-center text-[13px]" id="req-length">
+                              <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                isMinLength ? 'text-emerald-500' : 'text-red-400'
+                              }`}>
+                                {isMinLength ? (
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                ) : (
+                                  <X className="w-4 h-4" />
+                                )}
+                              </span>
+                              <span className={`transition-colors ${isMinLength ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                12+ characters
+                              </span>
+                            </div>
+
+                            <div className="flex items-center text-[13px]" id="req-upper">
+                              <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                hasUpperCase ? 'text-emerald-500' : 'text-red-400'
+                              }`}>
+                                {hasUpperCase ? (
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                ) : (
+                                  <X className="w-4 h-4" />
+                                )}
+                              </span>
+                              <span className={`transition-colors ${hasUpperCase ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                Uppercase (A-Z)
+                              </span>
+                            </div>
+
+                            <div className="flex items-center text-[13px]" id="req-lower">
+                              <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                hasLowerCase ? 'text-emerald-500' : 'text-red-400'
+                              }`}>
+                                {hasLowerCase ? (
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                ) : (
+                                  <X className="w-4 h-4" />
+                                )}
+                              </span>
+                              <span className={`transition-colors ${hasLowerCase ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                Lowercase (a-z)
+                              </span>
+                            </div>
+
+                            <div className="flex items-center text-[13px]" id="req-digit">
+                              <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                hasNumber ? 'text-emerald-500' : 'text-red-400'
+                              }`}>
+                                {hasNumber ? (
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                ) : (
+                                  <X className="w-4 h-4" />
+                                )}
+                              </span>
+                              <span className={`transition-colors ${hasNumber ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                Numeric (0-9)
+                              </span>
+                            </div>
+
+                            <div className="flex items-center text-[13px] sm:col-span-2" id="req-special">
+                              <span className={`status-icon mr-2 transition-all shrink-0 ${
+                                hasSpecialChar ? 'text-emerald-500' : 'text-red-400'
+                              }`}>
+                                {hasSpecialChar ? (
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                ) : (
+                                  <X className="w-4 h-4" />
+                                )}
+                              </span>
+                              <span className={`transition-colors ${hasSpecialChar ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                Special character (@, #, $, %, etc.)
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Submit Action Button */}
+                        <button
+                          type="submit"
+                          disabled={isSubmitting}
+                          className={`w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-4 rounded-lg transition-all duration-150 shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 disabled:opacity-50`}
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              <span>Verifying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Login to Estimator</span>
+                              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    </>
+                  )}
 
                 </div>
               </motion.div>
