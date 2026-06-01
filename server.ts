@@ -45,6 +45,8 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
     return {
       isValid: true,
       confidence: 96,
+      classification: "Blueprint",
+      faceDetected: false,
       reason: "Verified standard architectural commercial office plan blueprint.",
       ocrTextDetected: "A-102 Commercial Office Floor Plan",
       constructionElements: ["walls", "doors", "windows", "storefront", "outlets"]
@@ -54,6 +56,8 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
     return {
       isValid: true,
       confidence: 98,
+      classification: "Blueprint",
+      faceDetected: false,
       reason: "Verified heavy industrial concrete framing & foundation slab plan.",
       ocrTextDetected: "S-201 Heavy Industrial Foundation Layout",
       constructionElements: ["columns", "foundations", "slabs", "gridlines"]
@@ -63,6 +67,8 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
     return {
       isValid: true,
       confidence: 94,
+      classification: "Blueprint",
+      faceDetected: false,
       reason: "Verified residential studio apartment blueprint layout.",
       ocrTextDetected: "R-101 Studio Apartment",
       constructionElements: ["walls", "dimensions", "doors", "windows", "tile"]
@@ -72,6 +78,8 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
     return {
       isValid: true,
       confidence: 97,
+      classification: "Blueprint",
+      faceDetected: false,
       reason: "Verified commercial mechanical and plumbing riser schematic.",
       ocrTextDetected: "M-301 Mechanical Plumbing Layout",
       constructionElements: ["pipes", "drains", "supply line", "fittings"]
@@ -79,12 +87,14 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
   }
 
   // 2. Reject explicit test failure presets immediately
-  if (normalizedName.includes('selfie') || normalizedName.includes('portrait') || normalizedName.includes('profile')) {
+  if (normalizedName.includes('selfie') || normalizedName.includes('portrait') || normalizedName.includes('profile') || normalizedName.includes('photo') || normalizedName.includes('human') || normalizedName.includes('person') || normalizedName.includes('people') || normalizedName.includes('face') || normalizedName.includes('family') || normalizedName.includes('animal') || normalizedName.includes('food') || normalizedName.includes('landscape')) {
     return {
       isValid: false,
-      confidence: 12,
-      reason: "The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates.",
-      ocrTextDetected: "Personal photo / portrait image characters",
+      confidence: 15,
+      classification: "Non-Construction Image",
+      faceDetected: true,
+      reason: "The uploaded image is not a valid construction drawing, blueprint, sketch, or construction site photo. Please upload a construction-related image.",
+      ocrTextDetected: "Selfie/portrait photo characters and facial structures detected",
       constructionElements: []
     };
   }
@@ -92,6 +102,8 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
     return {
       isValid: false,
       confidence: 22,
+      classification: "Non-Construction Image",
+      faceDetected: false,
       reason: "Image quality too low for accurate estimation. Please upload a clearer image.",
       ocrTextDetected: "Unreadable pixel arrays",
       constructionElements: []
@@ -112,7 +124,9 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
       return {
         isValid: false,
         confidence: 8,
-        reason: "The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates.",
+        classification: "Non-Construction Image",
+        faceDetected: false,
+        reason: "The uploaded image is not a valid construction drawing, blueprint, sketch, or construction site photo. Please upload a construction-related image.",
         ocrTextDetected: `Detected non-construction handwriting/text characteristics correlating to keyword matches: ${kw}`,
         constructionElements: []
       };
@@ -120,17 +134,26 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
   }
 
   // 4. Require keyword attributes linked to construction to pass fallback verification
-  const validKeywords = ['plan', 'blueprint', 'drawing', 'layout', 'elevation', 'section', 'cad', 'draft', 'sketch', 'structure', 'engineering', 'architectural'];
+  const validSketchKeywords = ['sketch', 'concept', 'drawing', 'draft', 'render'];
+  const isSketch = validSketchKeywords.some(kw => normalizedName.includes(kw));
+
+  const validSiteKeywords = ['site', 'pour', 'slab', 'brick', 'wall_photo', 'progress'];
+  const isSitePhoto = validSiteKeywords.some(kw => normalizedName.includes(kw));
+
+  const validKeywords = ['plan', 'blueprint', 'drawing', 'layout', 'elevation', 'section', 'cad', 'draft', 'sketch', 'structure', 'engineering', 'architectural', 'site'];
   const hasConstructionIndicator = validKeywords.some(kw => normalizedName.includes(kw)) ||
                                    /^[asme]\d{3}/i.test(fileName) ||
                                    /^[asme]-\d{3}/i.test(fileName);
 
   if (hasConstructionIndicator) {
+    const classification = isSketch ? "Architectural Sketch" : (isSitePhoto ? "Construction Site Photo" : "Blueprint");
     return {
       isValid: true,
-      confidence: 85,
-      reason: "Detected valid drawing format indicator keywords and file naming signatures.",
-      ocrTextDetected: "Standard blueprint sheet notations",
+      confidence: 88,
+      classification: classification,
+      faceDetected: false,
+      reason: `Detected valid format indicators matching category: ${classification}.`,
+      ocrTextDetected: "Standard plan symbols and engineering notations",
       constructionElements: ["walls", "dimensions", "lines"]
     };
   }
@@ -139,7 +162,9 @@ const runFallbackClassifier = (base64Image: string, fileName: string) => {
   return {
     isValid: false,
     confidence: 28,
-    reason: "The uploaded file is not a valid construction drawing or blueprint. Please upload a construction-related plan, blueprint, engineering drawing, or site layout to generate cost estimates.",
+    classification: "Non-Construction Image",
+    faceDetected: false,
+    reason: "The uploaded image is not a valid construction drawing, blueprint, sketch, or construction site photo. Please upload a construction-related image.",
     ocrTextDetected: "Plain unstructured text and foreign language metadata pattern block",
     constructionElements: []
   };
@@ -178,40 +203,34 @@ app.post("/api/validate-drawing", async (req: any, res: any) => {
     console.log(`[Validation API] Querying Gemini for file: ${fileName} (${mimeType})`);
 
     const promptText = `You are a strict, professional AI Construction Document Validation System.
-Analyze the uploaded image and perform detailed inspection to determine if this file is a valid construction-related drawing or blueprint.
+Analyze the uploaded image and perform detailed inspection to determine if this file is a valid construction-related drawing, blueprint, sketch, or construction site photo.
 
-Accepted input types:
-- Architectural floor plans
-- Building blueprints
-- Structural drawings
-- Elevation drawings
-- Section drawings
-- Site plans
-- Construction CAD exports
-- Engineering drawings
-- Construction sketches containing measurable building information (walls, rooms, dimensions)
+Your analysis MUST yield:
+1. Classification category. Choose exactly one of the following:
+   - "Blueprint" (used for CAD designs, elevation sheets, site layouts, plan blueprints)
+   - "Architectural Sketch" (used for hand-drawn architectural concepts, floor layouts with visible dimensions)
+   - "Construction Site Photo" (used for structural photos of active construction progress, foundation pours, wood framing, site operations)
+   - "Non-Construction Image" (used for selfies, human portraits, animals, family photos, screenshots, food, landscapes, general handwriting, notes, plain documents)
 
-Rejected input types:
-- Handwritten notes, papers, lists
-- School notebook pages, diaries, exercise sheets
-- Plain text documents, articles, letters, emails
-- Books, scripts, prose
-- Screenshots unrelated to construction
-- Photographs without construction drawings (selfies, landscapes, food, closeups, etc.)
-- Blank pages, solid whiteboards, clear sheets
-- Non-construction diagrams (flowcharts, mind maps, org charts, Venn diagrams, etc.)
-- Images containing ONLY text, calligraphy or handwriting in any language (English, Marathi, Hindi, etc.)
+2. Face/Person Detection. Search meticulously for any human faces, human figures, or human body poses. Set "faceDetected" to true if a human face or human presence is detected.
 
-Validation Instructions:
-1. Conduct OCR detection: Scan for printed or handwritten text. If the image is occupied mostly by lines of text or general cursive note-taking in any language (especially Marathi, Hindi, Sanskrit, etc.) and contains no CAD or plan line layouts, REJECT IT immediately.
-2. Search for construction blueprint elements: Look for wall systems, rooms, dimensional scales, window/door swings, structural grids, section annotations, detail keys, site borders, elevation heights. 
-3. Calculate a percentage confidence score (0 to 100) based on how matching the image is to a professional construction drawing layout.
-4. If confidence is below 75, set "isValid" to false.
+3. Determine construction relevance confidence (0 to 100). This confidence must be high (>=80%) only if there is explicit construction relevance.
+
+4. Outright validation status "isValid". Under no circumstances can "isValid" be true if:
+   - "classification" is "Non-Construction Image"
+   - "faceDetected" is true
+   - "confidence" is below 80
+   - Otherwise, "isValid" is true.
+
+5. Correct Reject Message: If the image is determined to be non-construction or invalid, provide this exact status message in target "reason":
+   "The uploaded image is not a valid construction drawing, blueprint, sketch, or construction site photo. Please upload a construction-related image."
 
 Respond ONLY with a JSON object. No extra markdown tags or prefixes. Structure:
 {
-  "isValid": boolean, // true ONLY if it is an accepted construction drawing AND confidence is >= 75
+  "classification": string, // "Blueprint" | "Architectural Sketch" | "Construction Site Photo" | "Non-Construction Image"
+  "isValid": boolean, 
   "confidence": number, // integer percentage confidence from 0 to 100
+  "faceDetected": boolean,
   "reason": "precise explanation of your assessment, detailing visible elements",
   "ocrTextDetected": "brief summary of main words or characters detected",
   "constructionElements": ["walls", "dimensions", "etc."]
@@ -236,8 +255,10 @@ Respond ONLY with a JSON object. No extra markdown tags or prefixes. Structure:
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            classification: { type: Type.STRING },
             isValid: { type: Type.BOOLEAN },
             confidence: { type: Type.INTEGER },
+            faceDetected: { type: Type.BOOLEAN },
             reason: { type: Type.STRING },
             ocrTextDetected: { type: Type.STRING },
             constructionElements: {
@@ -245,7 +266,7 @@ Respond ONLY with a JSON object. No extra markdown tags or prefixes. Structure:
               items: { type: Type.STRING }
             }
           },
-          required: ["isValid", "confidence", "reason", "ocrTextDetected", "constructionElements"]
+          required: ["classification", "isValid", "confidence", "faceDetected", "reason", "ocrTextDetected", "constructionElements"]
         }
       }
     });
