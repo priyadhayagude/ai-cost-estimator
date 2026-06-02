@@ -1634,19 +1634,19 @@ export default function App() {
                           <p className="text-amber-700 leading-relaxed">
                             SMTP email sending is currently bypassed for development and testing. Your secure Reset Code has been printed to the browser console and is displayed below:
                           </p>
-                          <div className="flex items-center justify-between gap-3 bg-white border border-amber-200 p-2.5 px-3.5 rounded-lg shadow-sm">
+                          <div className="flex items-center justify-between gap-3 bg-slate-900 border border-slate-950 p-3 px-4 rounded-xl shadow-inner text-slate-100">
                             <div className="flex flex-col">
-                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Generated OTP Code</span>
-                              <span className="text-base font-mono font-bold text-amber-900 tracking-wider">{generatedCode}</span>
+                              <span className="text-[9px] uppercase font-bold text-slate-400 tracking-widest font-mono">SECURE OTP CODE</span>
+                              <span className="text-xl font-mono font-extrabold text-emerald-400 tracking-[0.25em] select-all drop-shadow-[0_0_8px_rgba(52,211,153,0.3)] mt-1">{generatedCode}</span>
                             </div>
                             <button
                               type="button"
                               onClick={() => {
                                 navigator.clipboard.writeText(generatedCode);
                               }}
-                              className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                              className="px-3 py-1.5 text-xs font-mono font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 hover:bg-emerald-950/80 rounded-lg transition-all active:scale-95 flex items-center gap-1 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.1)] hover:border-emerald-500/60"
                             >
-                              <span>Copy Code</span>
+                              <span>Copy OTP</span>
                             </button>
                           </div>
                         </div>
