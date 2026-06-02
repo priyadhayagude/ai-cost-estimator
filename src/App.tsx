@@ -99,6 +99,7 @@ interface CalculatedAsset {
   description: string;
 }
 
+// selfie validation fix v2
 interface ValidationAuditLog {
   fileName: string;
   classification: 'Blueprint' | 'Architectural Sketch' | 'Construction Site Photo' | 'Non-Construction Image';
